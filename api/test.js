@@ -32,82 +32,109 @@ ${text}
 
     const ai = await response.json();
 
-    const jsonString =
-      ai.output
-        .find(x => x.type === "message")
-        .content
-        .find(x => x.type === "output_text")
-        .text;
+    // OpenAI 오류
+    if (ai.error) {
+      return res.status(500).json(ai);
+    }
 
-    const note = JSON.parse(jsonString);
+    const message = ai.output.find(x => x.type === "message");
 
-    // Notion 저장
-    const notion = await fetch("https://api.notion.com/v1/pages", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.NOTION_API_KEY}`,
-        "Notion-Version": "2022-06-28",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        parent: {
-          database_id: process.env.NOTION_DATABASE_ID
-        },
-        properties: {
-          이름: {
-            title: [
+    const output = message.content.find(
+      x => x.type === "output_text"
+    );
+
+    const note = JSON.parse(output.text);
+
+    // 허용 카테고리
+    const category = [
+      "투자",
+      "법학",
+      "독서",
+      "LEET",
+      "경제",
+      "AI",
+      "아이디어"
+    ].includes(note.category)
+      ? note.category
+      : "기타";
+
+    // ---------- Notion Block 생성 ----------
+    const children = [];
+
+    function addParagraph(text) {
+      if (!text) return;
+
+      const str = String(text);
+
+      for (let i = 0; i < str.length; i += 1900) {
+        children.push({
+          object: "block",
+          type: "paragraph",
+          paragraph: {
+            rich_text: [
               {
+                type: "text",
                 text: {
-                  content: note.title
+                  content: str.slice(i, i + 1900)
                 }
               }
             ]
-          },
-          분류: {
-            select: {
-              name: note.category || "기타"
-            }
           }
+        });
+      }
+    }
+
+    addParagraph(note.summary);
+    addParagraph(note.content);
+
+    // ---------- Notion 저장 ----------
+    const notion = await fetch(
+      "https://api.notion.com/v1/pages",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.NOTION_API_KEY}`,
+          "Content-Type": "application/json",
+          "Notion-Version": "2022-06-28"
         },
-        children: [
-          {
-            object: "block",
-            type: "paragraph",
-            paragraph: {
-              rich_text: [
+        body: JSON.stringify({
+          parent: {
+            database_id: process.env.NOTION_DATABASE_ID
+          },
+          properties: {
+            이름: {
+              title: [
                 {
-                  type: "text",
                   text: {
-                    content: note.summary
+                    content: String(note.title).slice(0, 200)
                   }
                 }
               ]
+            },
+            분류: {
+              select: {
+                name: category
+              }
             }
           },
-          {
-            object: "block",
-            type: "paragraph",
-            paragraph: {
-              rich_text: [
-                {
-                  type: "text",
-                  text: {
-                    content: note.content
-                  }
-                }
-              ]
-            }
-          }
-        ]
-      })
+          children
+        })
+      }
+    );
+
+    const notionResult = await notion.text();
+
+    if (!notion.ok) {
+      return res.status(notion.status).send(notionResult);
+    }
+
+    return res.status(200).json({
+      success: true,
+      note
     });
 
-    const result = await notion.text();
-
-    res.status(200).send(result);
-
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       error: err.message,
       stack: err.stack
     });
