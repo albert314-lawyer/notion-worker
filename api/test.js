@@ -1,4 +1,4 @@
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   try {
     // ---------- 요청 본문 안전 처리 ----------
     const body =
@@ -179,6 +179,59 @@ ${text}
 
     // ---------- Markdown 변환 ----------
 function markdownToBlocks(markdown) {
+
+  function parseRichText(text) {
+    const rich = [];
+    const regex = /\*\*(.*?)\*\*/g;
+
+    let last = 0;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+
+      if (match.index > last) {
+        rich.push({
+          type: "text",
+          text: {
+            content: text.slice(last, match.index)
+          }
+        });
+      }
+
+      rich.push({
+        type: "text",
+        text: {
+          content: match[1]
+        },
+        annotations: {
+          bold: true
+        }
+      });
+
+      last = regex.lastIndex;
+    }
+
+    if (last < text.length) {
+      rich.push({
+        type: "text",
+        text: {
+          content: text.slice(last)
+        }
+      });
+    }
+
+    if (rich.length === 0) {
+      rich.push({
+        type: "text",
+        text: {
+          content: text
+        }
+      });
+    }
+
+    return rich;
+  }
+
   const blocks = [];
 
   if (!markdown) return blocks;
@@ -187,7 +240,8 @@ function markdownToBlocks(markdown) {
     .replace(/\r/g, "")
     .split("\n");
 
-  for (let raw of lines) {
+  for (const raw of lines) {
+
     const line = raw.trim();
 
     if (!line) continue;
@@ -197,53 +251,14 @@ function markdownToBlocks(markdown) {
     // -----------------------
 
     if (line.startsWith("## ")) {
+
       blocks.push({
         object: "block",
         type: "heading_2",
         heading_2: {
-          function parseRichText(text) {
-            const rich = [];
-
-            const regex = /\*\*(.*?)\*\*/g;
-
-            let last = 0;
-            let match;
-          
-            while ((match = regex.exec(text)) !== null) {
-
-              if (match.index > last) {
-                rich.push({
-                  type: "text",
-                  text: {
-                    content: text.slice(last, match.index)
-                  }
-                });
-              }
-
-              rich.push({
-                type: "text",
-                text: {
-                  content: match[1]
-                },
-                annotations: {
-                  bold: true
-                }
-              });
-
-              last = regex.lastIndex;
-            }
-
-            if (last < text.length) {
-              rich.push({
-                type: "text",
-                text: {
-                  content: text.slice(last)
-                }
-              });
-            }
-
-            return rich;
-          }
+          rich_text: parseRichText(
+            line.replace(/^## /, "").slice(0, 200)
+          )
         }
       });
 
@@ -254,10 +269,8 @@ function markdownToBlocks(markdown) {
     // Divider
     // -----------------------
 
-    if (
-      line === "---" ||
-      line === "***"
-    ) {
+    if (line === "---" || line === "***") {
+
       blocks.push({
         object: "block",
         type: "divider",
@@ -268,7 +281,7 @@ function markdownToBlocks(markdown) {
     }
 
     // -----------------------
-    // Bullet List
+    // Bullet
     // -----------------------
 
     if (
@@ -276,14 +289,15 @@ function markdownToBlocks(markdown) {
       line.startsWith("* ")
     ) {
 
-      const text = line
-        .replace(/^[-*]\s/, "");
+      const text = line.replace(/^[-*]\s/, "");
 
       blocks.push({
         object: "block",
         type: "bulleted_list_item",
         bulleted_list_item: {
-          rich_text: parseRichText(text)
+          rich_text: parseRichText(
+            text.slice(0, 1900)
+          )
         }
       });
 
@@ -291,28 +305,20 @@ function markdownToBlocks(markdown) {
     }
 
     // -----------------------
-    // Numbered List
+    // Numbered
     // -----------------------
 
     if (/^\d+\.\s/.test(line)) {
 
-      const text = line.replace(
-        /^\d+\.\s/,
-        ""
-      );
+      const text = line.replace(/^\d+\.\s/, "");
 
       blocks.push({
         object: "block",
         type: "numbered_list_item",
         numbered_list_item: {
-          rich_text: [
-            {
-              type: "text",
-              text: {
-                content: text.slice(0, 1900)
-              }
-            }
-          ]
+          rich_text: parseRichText(
+            text.slice(0, 1900)
+          )
         }
       });
 
@@ -325,20 +331,15 @@ function markdownToBlocks(markdown) {
 
     if (line.startsWith("> ")) {
 
+      const text = line.replace(/^>\s/, "");
+
       blocks.push({
         object: "block",
         type: "quote",
         quote: {
-          rich_text: [
-            {
-              type: "text",
-              text: {
-                content: line
-                  .replace(/^>\s/, "")
-                  .slice(0, 1900)
-              }
-            }
-          ]
+          rich_text: parseRichText(
+            text.slice(0, 1900)
+          )
         }
       });
 
@@ -346,7 +347,7 @@ function markdownToBlocks(markdown) {
     }
 
     // -----------------------
-    // Code Block
+    // Code Fence
     // -----------------------
 
     if (line.startsWith("```")) {
@@ -354,30 +355,18 @@ function markdownToBlocks(markdown) {
     }
 
     // -----------------------
-    // 일반 문단
+    // Paragraph
     // -----------------------
 
-    for (
-      let i = 0;
-      i < line.length;
-      i += 1900
-    ) {
+    for (let i = 0; i < line.length; i += 1900) {
 
       blocks.push({
         object: "block",
         type: "paragraph",
         paragraph: {
-          rich_text: [
-            {
-              type: "text",
-              text: {
-                content: line.slice(
-                  i,
-                  i + 1900
-                )
-              }
-            }
-          ]
+          rich_text: parseRichText(
+            line.slice(i, i + 1900)
+          )
         }
       });
 
